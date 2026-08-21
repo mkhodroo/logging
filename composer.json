@@ -1,0 +1,24 @@
+{
+    "name": "behin/logging",
+    "description": "",
+    "version": "1.0",
+    "authors": [
+        {
+            "name": "Mkhodroo",
+            "email": "mkhodroo@yahoo.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "BehinLogging\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "BehinLogging\\ServiceProvider"
+            ]
+        }
+    },
+    "require": {}
+}
