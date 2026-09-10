@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use BehinLogging\Models\UserActionLog;
 
 class Logging
 {
@@ -37,6 +38,18 @@ class Logging
                 'action' => $request->method() . ' ' . $request->path(),
                 'params' => $request->all(),
                 'timestamp' => now()
+            ]);
+
+            UserActionLog::create([
+                'user_id' => $user->id,
+                'user_name' => $user->name,
+                'method' => $request->method(),
+                'path' => $request->path(),
+                'action' => $request->method() . ' ' . $request->path(),
+                'params' => $request->except(['password', 'password_confirmation', '_token']),
+                'status_code' => $response->getStatusCode(),
+                'ip_address' => $request->ip(),
+                'user_agent' => substr((string) $request->userAgent(), 0, 1000),
             ]);
         }
 
