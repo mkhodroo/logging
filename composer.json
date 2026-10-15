@@ -20,5 +20,7 @@
             ]
         }
     },
-    "require": {}
+    "require": {
+        "morilog/jalali": "3.*"
+    }
 }
