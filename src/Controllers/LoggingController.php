@@ -18,35 +18,55 @@ class LoggingController extends Controller
 
     public function index(Request $request)
     {
-        $logs = UserActionLog::query()
-            ->when($request->filled('user_id'), fn($q) => $q->where('user_id', $request->user_id))
-            ->when($request->filled('user_name'), fn($q) => $q->where('user_name', 'LIKE', '%' . $request->user_name . '%'))
-            ->when($request->filled('path'), fn($q) => $q->where(function ($qq) use ($request) {
-                $qq->where('path', 'LIKE', '%' . $request->path . '%')
-                    ->orWhere('action', 'LIKE', '%' . $request->path . '%');
-            }))
-            ->when($request->filled('method'), fn($q) => $q->where('method', $request->method))
-            ->when($request->filled('date_from'), function ($q) use ($request) {
-                if ($g = $this->jalaliToGregorian($request->date_from)) {
-                    $q->whereDate('created_at', '>=', $g);
-                }
-            })
-            ->when($request->filled('date_to'), function ($q) use ($request) {
-                if ($g = $this->jalaliToGregorian($request->date_to)) {
-                    $q->whereDate('created_at', '<=', $g);
-                }
-            })
-            ->when($request->filled('detail'), function ($q) use ($request) {
-                $d = '%' . $request->detail . '%';
-                $q->where(function ($qq) use ($d) {
-                    $qq->where('action', 'LIKE', $d)
-                        ->orWhere('path', 'LIKE', $d)
-                        ->orWhere('user_agent', 'LIKE', $d)
-                        ->orWhere('params', 'LIKE', $d)
-                        ->orWhere('ip_address', 'LIKE', $d);
-                });
-            })
-            ->latest()->paginate(50)->withQueryString();
+        // NOTE: all filters below are combined with AND.
+        // OR is only used *inside* a single box (e.g. path matches path OR action),
+        // wrapped in a grouped where() so it never leaks into the other filters.
+        $query = UserActionLog::query();
+
+        if ($request->filled('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        if ($request->filled('user_name')) {
+            $query->where('user_name', 'LIKE', '%' . $request->user_name . '%');
+        }
+
+        if ($request->filled('path')) {
+            $path = '%' . $request->path . '%';
+            $query->where(function ($qq) use ($path) {
+                $qq->where('path', 'LIKE', $path)
+                    ->orWhere('action', 'LIKE', $path);
+            });
+        }
+
+        if ($request->filled('method')) {
+            $query->where('method', $request->method);
+        }
+
+        if ($request->filled('date_from')) {
+            if ($g = $this->jalaliToGregorian($request->date_from)) {
+                $query->whereDate('created_at', '>=', $g);
+            }
+        }
+
+        if ($request->filled('date_to')) {
+            if ($g = $this->jalaliToGregorian($request->date_to)) {
+                $query->whereDate('created_at', '<=', $g);
+            }
+        }
+
+        if ($request->filled('detail')) {
+            $d = '%' . $request->detail . '%';
+            $query->where(function ($qq) use ($d) {
+                $qq->where('action', 'LIKE', $d)
+                    ->orWhere('path', 'LIKE', $d)
+                    ->orWhere('user_agent', 'LIKE', $d)
+                    ->orWhere('params', 'LIKE', $d)
+                    ->orWhere('ip_address', 'LIKE', $d);
+            });
+        }
+
+        $logs = $query->latest()->paginate(50)->withQueryString();
         return view('BehinLoggingViews::index', compact('logs'));
     }
 
@@ -80,10 +100,23 @@ class LoggingController extends Controller
         try {
             $jalaliDate = trim((string) $jalaliDate);
             if ($jalaliDate === '') return null;
+            // Normalize Persian/Arabic digits to Latin (datepicker/keyboard may output Persian digits,
+            // and (int) cast of Persian digits becomes 0 which silently dropped the date filter)
+            $jalaliDate = str_replace(
+                ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹', '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'],
+                ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+                $jalaliDate
+            );
             $jalaliDate = str_replace('/', '-', $jalaliDate);
+            $jalaliDate = preg_replace('/\s+/', '', $jalaliDate);
             $parts = explode('-', $jalaliDate);
             if (count($parts) < 3) return null;
-            return Jalalian::fromFormat('Y-m-d', sprintf('%04d-%02d-%02d', (int) $parts[0], (int) $parts[1], (int) $parts[2]))
+            $y = (int) $parts[0];
+            $m = (int) $parts[1];
+            $d = (int) $parts[2];
+            if ($y < 100) $y += 1300;
+            if ($y < 1300 || $y > 1500 || $m < 1 || $m > 12 || $d < 1 || $d > 31) return null;
+            return Jalalian::fromFormat('Y-m-d', sprintf('%04d-%02d-%02d', $y, $m, $d))
                 ->toCarbon()->toDateString();
         } catch (\Throwable $e) {
             return null;
